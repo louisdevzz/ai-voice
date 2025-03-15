@@ -51,6 +51,14 @@ STATUS_MESSAGES = {
 class ChatRequest(BaseModel):
     message: str
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatSearchRequest(BaseModel):
+    message: str
+    search: bool = False
+
 class StatusRequest(BaseModel):
     status: str
     custom_message: Optional[str] = None
@@ -257,6 +265,51 @@ Nhiệm vụ của bạn là:
         raise HTTPException(
             status_code=500,
             detail=f"Chat error: {str(e)}"
+        )
+
+@app.post("/api/chat-search")
+async def chat_search_endpoint(request: ChatSearchRequest):
+    if not request.message:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+    try:
+        # Clean input message
+        cleaned_message = request.message
+        for char in ['*', '#', '_', '`', '~', '>', '<']:
+            cleaned_message = cleaned_message.replace(char, '')
+
+        response = openai_client.responses.create(
+            model="gpt-4o",
+            tools=[{ "type": "web_search_preview" }],
+            input=cleaned_message
+        )
+
+        # Extract response text from the nested structure
+        response_text = ""
+        if response.output:
+            for output in response.output:
+                if output.type == "message":
+                    for content in output.content:
+                        if content.type == "output_text":
+                            response_text = content.text
+                            break
+                    if response_text:  # If we found the text, break the outer loop
+                        break
+
+        # If no response text was found, provide a default message
+        if not response_text:
+            response_text = "Xin lỗi, tôi không thể tìm thấy thông tin phù hợp cho câu hỏi của bạn."
+
+        return {
+            "role": "assistant",
+            "content": response_text
+        }
+
+    except Exception as e:
+        print(f"Chat search error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Chat search error: {str(e)}"
         )
 
 @app.get("/api/health")
