@@ -10,12 +10,8 @@ from elevenlabs import VoiceSettings
 import tempfile
 from typing import Optional, List
 import wave
-import json
 import shutil
-import io
 import base64
-import asyncio
-from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -81,7 +77,7 @@ def validate_audio_file(file_path: str) -> bool:
     except Exception:
         return False
 
-@app.post("/api/transcribe")
+@app.post("/ai/api/transcribe")
 async def transcribe_audio(audio: UploadFile = File(...)):
     if not audio:
         raise HTTPException(status_code=400, detail="No audio file provided")
@@ -156,7 +152,7 @@ def text_to_speech(text: str) -> bytes:
         print(f"Text-to-speech error: {str(e)}")
         raise
 
-@app.post("/api/status-message")
+@app.post("/ai/api/status-message")
 async def get_status_message(request: StatusRequest):
     """Get audio message for a specific status"""
     try:
@@ -173,7 +169,7 @@ async def get_status_message(request: StatusRequest):
             detail=f"Status message error: {str(e)}"
         )
 
-@app.post("/api/chat")
+@app.post("/ai/api/chat")
 async def chat_endpoint(request: ChatRequest):
     if not request.message:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
@@ -267,7 +263,7 @@ Nhiệm vụ của bạn là:
             detail=f"Chat error: {str(e)}"
         )
 
-@app.post("/api/chat-search")
+@app.post("/ai/api/chat-search")
 async def chat_search_endpoint(request: ChatSearchRequest):
     if not request.message:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
@@ -312,12 +308,12 @@ async def chat_search_endpoint(request: ChatSearchRequest):
             detail=f"Chat search error: {str(e)}"
         )
 
-@app.get("/api/health")
+@app.get("/ai/api/health")
 async def health_check():
     """Health check endpoint"""
     return {"status": "ok"}
 
 if __name__ == "__main__":
     import uvicorn
-    print("Starting server on http://localhost:3000")
-    uvicorn.run(app, host="0.0.0.0", port=3000, log_level="info") 
+    print("Starting server on http://localhost:5000")
+    uvicorn.run(app, host="0.0.0.0", port=5000, log_level="info") 
