@@ -3,13 +3,23 @@ interface Message {
   content: string;
 }
 
+interface SearchStep {
+  message: string;
+  status: 'pending' | 'completed' | 'current';
+}
+
 interface ChatHistory {
   [chatId: string]: Message[];
+}
+
+interface SearchStepsHistory {
+  [chatId: string]: SearchStep[];
 }
 
 class MessageStore {
   private static instance: MessageStore;
   private chatHistory: ChatHistory = {};
+  private searchStepsHistory: SearchStepsHistory = {};
 
   private constructor() {}
 
@@ -29,6 +39,14 @@ class MessageStore {
 
   public getMessages(chatId: string): Message[] {
     return this.chatHistory[chatId] || [];
+  }
+
+  public setSearchSteps(chatId: string, steps: SearchStep[]): void {
+    this.searchStepsHistory[chatId] = steps;
+  }
+
+  public getSearchSteps(chatId: string): SearchStep[] {
+    return this.searchStepsHistory[chatId] || [];
   }
 
   public addInitialMessage(chatId: string, userMessage: string, assistantMessage: string): void {

@@ -47,6 +47,12 @@ CS_KEYWORDS = [
     'khoa kỹ thuật', 'sit', 'school of information technology'
 ]
 
+# Add TTU-related keywords constant
+TTU_KEYWORDS = [
+    'tân tạo', 'ttu', 'đại học tân tạo', 'trường tân tạo', 
+    'university tân tạo', 'ttu.edu.vn', 'sit.ttu.edu.vn'
+]
+
 # Cache for scraped content
 scraped_content_cache = {}
 
@@ -339,25 +345,36 @@ async def chat_search_endpoint(request: ChatSearchRequest):
         for char in ['*', '#', '_', '`', '~', '>', '<']:
             cleaned_message = cleaned_message.replace(char, '')
 
+        # Check if query is related to TTU
+        is_ttu_related = any(keyword in cleaned_message for keyword in TTU_KEYWORDS)
+        
+        # If not related to TTU, return a polite message
+        if not is_ttu_related:
+            return {
+                "role": "assistant",
+                "content": """Xin lỗi, tôi chỉ có thể trả lời các câu hỏi liên quan đến Đại học Tân Tạo (TTU).
+
+Vui lòng đặt câu hỏi về:
+* Tuyển sinh TTU
+* Ngành học tại TTU
+* Học phí & học bổng TTU
+* Thông tin về TTU""",
+                "sections": [],
+                "citations": None
+            }
+
         # Check if query is CS/IT related
         is_cs_query = any(keyword in cleaned_message for keyword in CS_KEYWORDS)
 
-        ttu_context = """
-        Bạn đang trả lời câu hỏi về Đại học Tân Tạo (TTU). Các thông tin chính:
-        - Website chính: https://ttu.edu.vn
-        - Tuyển sinh: /tuyen-sinh, /thong-tin-tuyen-sinh
-        - Đào tạo: /dao-tao, /chuong-trinh-dao-tao
-        - Nghiên cứu: /nghien-cuu, /nghien-cuu-khoa-hoc
-        - Các khoa: Y, CNTT, Sinh học, Ngôn ngữ, Kinh tế, Điều dưỡng
-        - Học phí & học bổng: /hoc-phi, /hoc-bong
-        - Tin tức & sự kiện: /tin-tuc, /su-kien
-        """
+        # Simplified context
+        ttu_context = """Trợ lý tư vấn tuyển sinh Đại học Tân Tạo (TTU). 
+Ưu tiên thông tin từ tài liệu tuyển sinh 2025. 
+Trả lời ngắn gọn, chính xác."""
 
-        # 1. Get web search results
+        # 1. Get web search results with length limit
         def get_web_search():
             try:
                 if is_cs_query:
-                    # Use Firecrawl for CS/IT related queries
                     cache_key = 'sit_content'
                     if cache_key not in scraped_content_cache:
                         scrape_result = firecrawl_app.scrape_url(
@@ -369,28 +386,31 @@ async def chat_search_endpoint(request: ChatSearchRequest):
                             }
                         )
                         if scrape_result.get('success'):
-                            scraped_content_cache[cache_key] = scrape_result['data']['markdown']
+                            # Limit content length
+                            content = scrape_result['data']['markdown']
+                            if len(content) > 2000:  # Limit to ~2000 characters
+                                content = content[:2000] + "..."
+                            scraped_content_cache[cache_key] = content
                             scraped_content_cache['timestamp'] = datetime.now()
                     
                     return scraped_content_cache.get(cache_key, ''), []
                 else:
-                    # Use regular search for non-CS queries
                     search_query = f"site:ttu.edu.vn {cleaned_message}"
                     response = openai_client.chat.completions.create(
-                        model="gpt-4",
+                        model="gpt-3.5-turbo",  # Use GPT-3.5 for initial search
                         messages=[
                             {"role": "system", "content": ttu_context},
-                            {"role": "user", "content": search_query}
+                            {"role": "user", "content": f"Tóm tắt ngắn gọn thông tin về: {search_query}"}
                         ],
                         temperature=0.3,
-                        max_tokens=500
+                        max_tokens=200  # Limit response length
                     )
                     return response.choices[0].message.content, []
             except Exception as e:
                 print(f"Web search error: {str(e)}")
                 return "", []
 
-        # 2. Get TXT content
+        # 2. Get TXT content with optimized section selection
         def get_txt_content():
             txt_content, txt_sections = load_content()
             if not txt_content:
@@ -404,80 +424,64 @@ async def chat_search_endpoint(request: ChatSearchRequest):
                 'ngành học': ['ngành', 'chuyên ngành', 'khoa', 'chương trình']
             }
 
-            # Find relevant sections
-            matched_sections = set()
-            relevant_content = []
+            # Find most relevant section only
+            most_relevant_section = 'thông tin chung'
+            max_matches = 0
             
             for section, words in keywords.items():
-                if any(word in cleaned_message for word in words):
-                    matched_sections.add(section)
-                    relevant_content.extend(txt_sections[section])
+                matches = sum(1 for word in words if word in cleaned_message)
+                if matches > max_matches:
+                    max_matches = matches
+                    most_relevant_section = section
 
-            if not matched_sections:
-                relevant_content.extend(txt_sections['thông tin chung'])
-                matched_sections.add('thông tin chung')
+            # Get content from most relevant section only
+            content = '\n'.join(txt_sections[most_relevant_section])
+            if len(content) > 2000:  # Limit to ~2000 characters
+                content = content[:2000] + "..."
 
-            return '\n'.join(relevant_content), list(matched_sections)
+            return content, [most_relevant_section]
 
         # Execute searches
         web_text, citations = get_web_search()
         txt_text, matched_sections = get_txt_content()
 
-        # Combine and synthesize information
-        synthesis_prompt = f"""### Câu hỏi
-{cleaned_message}
+        # Combine and synthesize information with reduced prompt
+        synthesis_prompt = f"""Câu hỏi: {cleaned_message}
 
-### Thông tin từ website TTU
-{web_text}
-
-### Thông tin từ tài liệu tuyển sinh
+Thông tin chính thức:
 {txt_text}
 
-Yêu cầu:
-1. Tổng hợp thông tin từ cả hai nguồn
-2. Ưu tiên thông tin từ tài liệu tuyển sinh vì đây là thông tin chính thức mới nhất
-3. Bổ sung thông tin từ website nếu cần thiết
-4. Trả lời dưới dạng markdown với các mục rõ ràng
-5. Nếu thông tin không đầy đủ, đề xuất liên hệ TTU"""
+Thông tin bổ sung:
+{web_text}
 
-        # Get final response
+Yêu cầu: Tổng hợp ngắn gọn, ưu tiên thông tin chính thức."""
+
+        # Get final response with reduced token count
         final_response = openai_client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": """Bạn là trợ lý tư vấn tuyển sinh của Đại học Tân Tạo (TTU).
-Nhiệm vụ:
-- Tổng hợp thông tin từ tài liệu tuyển sinh và website
-- Ưu tiên thông tin từ tài liệu tuyển sinh 2025
-- Sử dụng format markdown để trình bày rõ ràng
-- Trả lời ngắn gọn, chính xác và chuyên nghiệp
-- Đối với thông tin về ngành CNTT, ưu tiên thông tin từ website SIT"""},
+                {"role": "system", "content": ttu_context},
                 {"role": "user", "content": synthesis_prompt}
             ],
             temperature=0.3,
-            max_tokens=800
+            max_tokens=500  # Limit response length
         )
 
         response_text = final_response.choices[0].message.content
 
         # If no useful information found
         if not response_text or "không tìm thấy thông tin" in response_text.lower():
-            response_text = """### Thông báo
+            response_text = """### Thông tin liên hệ
 
-Xin lỗi, tôi không tìm thấy thông tin phù hợp trong tài liệu tuyển sinh.
-
-### Thông tin liên hệ
-
-Vui lòng liên hệ trực tiếp với Đại học Tân Tạo để được tư vấn chi tiết:
-
-* **Điện thoại:** (+84) 272 376 9216
+Vui lòng liên hệ TTU để được tư vấn:
 * **Hotline:** 0981 152 153
 * **Email:** info@ttu.edu.vn
-* **Website:** [https://ttu.edu.vn](https://ttu.edu.vn)"""
+* **Website:** [ttu.edu.vn](https://ttu.edu.vn)"""
 
         if is_cs_query:
-            response_text += "\n\n### Thông tin Khoa Công nghệ Thông tin\n\n* **Email khoa:** sit@ttu.edu.vn\n* **Website khoa:** [https://sit.ttu.edu.vn](https://sit.ttu.edu.vn)"
+            response_text += "\n\n### Khoa CNTT\n* **Email:** sit@ttu.edu.vn\n* **Website:** [sit.ttu.edu.vn](https://sit.ttu.edu.vn)"
 
-        # Clean up any double newlines and ensure consistent formatting
+        # Clean up formatting
         response_text = response_text.replace("\n\n\n", "\n\n").strip()
 
         return {

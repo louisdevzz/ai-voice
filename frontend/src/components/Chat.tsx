@@ -35,8 +35,22 @@ const Chat: React.FC<ChatProps> = () => {
     const userMessage = input.trim();
     setIsLoading(true);
     
+    // Add initial message and navigate immediately
+    const messageStore = MessageStore.getInstance();
+    messageStore.addMessage(chatId, { role: 'user', content: userMessage });
+    
+    // Initialize search steps in MessageStore
+    messageStore.setSearchSteps(chatId, [
+      { message: "Bắt đầu tìm kiếm", status: 'current' },
+      { message: "Đang tìm kiếm thông tin", status: 'pending' },
+      { message: "Đang trả về kết quả", status: 'pending' },
+      { message: "Trả về kết quả", status: 'pending' }
+    ]);
+    
+    navigate(`/chat/${chatId}`);
+    
     try {
-      const response = await fetch('https://api.slothai.xyz/ai/api/chat-search', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/ai/api/chat-search`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -52,12 +66,18 @@ const Chat: React.FC<ChatProps> = () => {
       }
 
       const data = await response.json();
-      const messageStore = MessageStore.getInstance();
-      messageStore.addInitialMessage(chatId, userMessage, data.content);
-    
-      navigate(`/chat/${chatId}`);
+      messageStore.addMessage(chatId, { role: 'assistant', content: data.content });
+      
+      // Clear search steps after getting response
+      messageStore.setSearchSteps(chatId, []);
     } catch (error) {
       console.error('Error:', error);
+      messageStore.addMessage(chatId, { 
+        role: 'assistant', 
+        content: 'Sorry, there was an error processing your request. Please try again.' 
+      });
+      // Clear search steps on error
+      messageStore.setSearchSteps(chatId, []);
     } finally {
       setIsLoading(false);
     }
@@ -85,7 +105,7 @@ const Chat: React.FC<ChatProps> = () => {
           const formData = new FormData();
           formData.append('audio', audioBlob, 'recording.wav');
 
-          const transcriptionResponse = await fetch('https://api.slothai.xyz/ai/api/transcribe', {
+          const transcriptionResponse = await fetch(`${import.meta.env.VITE_API_URL}/ai/api/transcribe`, {
             method: 'POST',
             body: formData,
           });

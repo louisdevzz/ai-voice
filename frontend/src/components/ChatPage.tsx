@@ -35,8 +35,34 @@ const ChatPage = () => {
     if (!chatId) return;
     const messageStore = MessageStore.getInstance();
     const messages = messageStore.getMessages(chatId);
+    const steps = messageStore.getSearchSteps(chatId);
     setMessages(messages);
+    
+    // Set up polling for search steps updates
+    const interval = setInterval(() => {
+      const currentSteps = messageStore.getSearchSteps(chatId);
+      if (currentSteps.length === 0) {
+        setIsLoading(false);
+        setSearchSteps([]);
+        clearInterval(interval);
+      } else {
+        setSearchSteps(currentSteps);
+        setIsLoading(true);
+      }
+    }, 500);
+
+    // Initial setup
+    if (steps.length > 0) {
+      setSearchSteps(steps);
+      setIsLoading(true);
+    } else {
+      setIsLoading(false);
+      setSearchSteps([]);
+    }
     setIsInitializing(false);
+
+    // Cleanup interval on unmount or chatId change
+    return () => clearInterval(interval);
   }, [chatId]);
 
   // Auto resize textarea
@@ -98,7 +124,7 @@ const ChatPage = () => {
       ));
       
       // Make the API call
-      const response = await fetch('https://api.slothai.xyz/ai/api/chat-search', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/ai/api/chat-search`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -168,7 +194,7 @@ const ChatPage = () => {
           const formData = new FormData();
           formData.append('audio', audioBlob, 'recording.wav');
 
-          const transcriptionResponse = await fetch('https://api.slothai.xyz/ai/api/transcribe', {
+          const transcriptionResponse = await fetch(`${import.meta.env.VITE_API_URL}/ai/api/transcribe`, {
             method: 'POST',
             body: formData,
           });
