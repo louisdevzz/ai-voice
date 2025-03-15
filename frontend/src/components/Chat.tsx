@@ -4,23 +4,15 @@ import { v4 as uuidv4 } from 'uuid';
 import MessageStore from '../store/MessageStore';
 import LoadingOverlay from './LoadingOverlay';
 
-interface Message {
-  role: 'user' | 'assistant';
-  content: string;
-}
-
 interface ChatProps {
   onSendMessage?: (message: string) => void;
 }
 
 const Chat: React.FC<ChatProps> = () => {
   const navigate = useNavigate();
-  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const [isNavigating, setIsNavigating] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -34,13 +26,6 @@ const Chat: React.FC<ChatProps> = () => {
     }
   }, [input]);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,8 +54,7 @@ const Chat: React.FC<ChatProps> = () => {
       const data = await response.json();
       const messageStore = MessageStore.getInstance();
       messageStore.addInitialMessage(chatId, userMessage, data.content);
-      
-      setIsNavigating(true);
+    
       navigate(`/chat/${chatId}`);
     } catch (error) {
       console.error('Error:', error);
@@ -213,27 +197,6 @@ const Chat: React.FC<ChatProps> = () => {
               </div>
             </form>
           </div>
-        </div>
-
-        {/* Messages container */}
-        <div className="mt-4 sm:mt-8 space-y-3 sm:space-y-4 px-2">
-          {messages.map((message, index) => (
-            <div
-              key={index}
-              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              <div
-                className={`max-w-[85%] sm:max-w-[80%] p-3 sm:p-4 rounded-lg shadow-md ${
-                  message.role === 'user'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white text-gray-800 border border-gray-200'
-                }`}
-              >
-                <p className="whitespace-pre-wrap text-[14px] sm:text-[16px]">{message.content}</p>
-              </div>
-            </div>
-          ))}
-          <div ref={messagesEndRef} />
         </div>
         </div>
         )

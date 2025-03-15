@@ -1,4 +1,3 @@
-import React from 'react';
 import { Loader } from 'lucide-react';
 
 interface ProcessLogsProps {
@@ -9,7 +8,7 @@ interface ProcessLogsProps {
     className?: string;
 }
 
-export function ProcessLogs({ steps, className }: ProcessLogsProps) {
+export function ProcessLogs({ steps }: ProcessLogsProps) {
     // Only show the current step
     const currentStep = steps.find(step => step.status === 'current');
 

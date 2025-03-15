@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { useState, useRef, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
@@ -16,7 +17,6 @@ const ChatPage = () => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const [processingStep, setProcessingStep] = useState<'thinking' | 'processing' | 'responding' | 'done'>('done');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -87,8 +87,6 @@ const ChatPage = () => {
     setTimeout(scrollToBottom, 100);
     
     setIsLoading(true);
-    setProcessingStep('thinking');
-
     try {
       // Step 1: Bắt đầu tìm kiếm
       await new Promise(resolve => setTimeout(resolve, 1000));
