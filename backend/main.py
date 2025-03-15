@@ -53,6 +53,20 @@ TTU_KEYWORDS = [
     'university tân tạo', 'ttu.edu.vn', 'sit.ttu.edu.vn'
 ]
 
+# Add validation keywords for TTU content
+TTU_VALIDATION_KEYWORDS = [
+    'long an', 'đức hòa', 'y khoa', 'y học', 'điều dưỡng',
+    'khoa học sự sống', 'khoa học ứng dụng', 'công nghệ thông tin',
+    'ngôn ngữ anh', 'quản trị kinh doanh'
+]
+
+# Add common query keywords that imply TTU-related questions
+IMPLICIT_KEYWORDS = [
+    'học phí', 'giảm học phí', 'học bổng', 'tuyển sinh', 'đăng ký', 'xét tuyển',
+    'ngành', 'khoa', 'chương trình', 'điểm chuẩn', 'đào tạo', 'thi', 'nhập học',
+    'ký túc xá', 'phòng', 'cơ sở', 'cơ sở vật chất', 'giảng viên', 'giáo sư'
+]
+
 # Cache for scraped content
 scraped_content_cache = {}
 
@@ -345,11 +359,12 @@ async def chat_search_endpoint(request: ChatSearchRequest):
         for char in ['*', '#', '_', '`', '~', '>', '<']:
             cleaned_message = cleaned_message.replace(char, '')
 
-        # Check if query is related to TTU
-        is_ttu_related = any(keyword in cleaned_message for keyword in TTU_KEYWORDS)
+        # Check if query is explicitly or implicitly related to TTU
+        is_explicit_ttu = any(keyword in cleaned_message for keyword in TTU_KEYWORDS)
+        is_implicit_ttu = any(keyword in cleaned_message for keyword in IMPLICIT_KEYWORDS)
         
-        # If not related to TTU, return a polite message
-        if not is_ttu_related:
+        # If not related to TTU at all, return a polite message
+        if not is_explicit_ttu and not is_implicit_ttu:
             return {
                 "role": "assistant",
                 "content": """Xin lỗi, tôi chỉ có thể trả lời các câu hỏi liên quan đến Đại học Tân Tạo (TTU).
@@ -363,17 +378,72 @@ Vui lòng đặt câu hỏi về:
                 "citations": None
             }
 
+        # Add TTU context to implicit queries for search
+        search_message = cleaned_message
+        if not is_explicit_ttu and is_implicit_ttu:
+            search_message = f"đại học tân tạo {cleaned_message}"
+
         # Check if query is CS/IT related
         is_cs_query = any(keyword in cleaned_message for keyword in CS_KEYWORDS)
 
-        # Simplified context
-        ttu_context = """Trợ lý tư vấn tuyển sinh Đại học Tân Tạo (TTU). 
-Ưu tiên thông tin từ tài liệu tuyển sinh 2025. 
-Trả lời ngắn gọn, chính xác."""
+        # Enhanced context with specific TTU information
+        ttu_context = """Trợ lý tư vấn tuyển sinh Đại học Tân Tạo (TTU).
+Thông tin cơ bản về TTU:
+- Địa chỉ: Đại học Tân Tạo, Tân Đức E-City, Đức Hòa, Long An
+- Các ngành đào tạo chính: Y khoa, Điều dưỡng, Công nghệ thông tin, Khoa học sự sống, Ngôn ngữ Anh, Quản trị kinh doanh
+- Website: ttu.edu.vn
 
-        # 1. Get web search results with length limit
+Yêu cầu:
+1. Chỉ sử dụng thông tin từ tài liệu tuyển sinh 2025 và website chính thức của TTU
+2. Không sử dụng thông tin chung chung hoặc không xác thực
+3. Nếu không có thông tin chính xác, đề xuất liên hệ TTU
+4. Mọi câu trả lời đều ngầm hiểu là về Đại học Tân Tạo"""
+
+        # 1. Get web search results with enhanced validation
         def get_web_search():
             try:
+                # Use OpenAI web search with modified query
+                search_query = f"site:ttu.edu.vn {search_message}"
+                openai_response = openai_client.responses.create(
+                    model="gpt-4",
+                    tools=[{"type": "web_search_preview"}],
+                    input=f"""Tìm thông tin về Đại học Tân Tạo (TTU) theo yêu cầu sau:
+{search_message}
+
+Yêu cầu:
+1. Chỉ tìm thông tin từ website chính thức ttu.edu.vn
+2. Thông tin phải chính xác và có nguồn gốc rõ ràng
+3. Bỏ qua thông tin chung chung hoặc không xác thực
+4. Nếu không tìm thấy thông tin chính xác, trả về "Không tìm thấy thông tin"
+5. Mọi thông tin đều phải là về Đại học Tân Tạo."""
+                )
+
+                # Extract web search results
+                web_content = ""
+                citations = []
+                
+                if openai_response.output:
+                    for output in openai_response.output:
+                        if output.type == "message":
+                            for content in output.content:
+                                if content.type == "output_text":
+                                    web_content = content.text
+                                    # Extract citations if available
+                                    if hasattr(content, 'annotations'):
+                                        citations = [
+                                            {
+                                                'url': ann.url,
+                                                'title': ann.title
+                                            }
+                                            for ann in content.annotations
+                                            if ann.type == "url_citation"
+                                        ]
+
+                # Validate web content
+                if not any(keyword in web_content.lower() for keyword in TTU_VALIDATION_KEYWORDS):
+                    web_content = ""
+
+                # If CS/IT related, also get Firecrawl content
                 if is_cs_query:
                     cache_key = 'sit_content'
                     if cache_key not in scraped_content_cache:
@@ -386,26 +456,16 @@ Trả lời ngắn gọn, chính xác."""
                             }
                         )
                         if scrape_result.get('success'):
-                            # Limit content length
                             content = scrape_result['data']['markdown']
-                            if len(content) > 2000:  # Limit to ~2000 characters
-                                content = content[:2000] + "..."
-                            scraped_content_cache[cache_key] = content
-                            scraped_content_cache['timestamp'] = datetime.now()
-                    
-                    return scraped_content_cache.get(cache_key, ''), []
-                else:
-                    search_query = f"site:ttu.edu.vn {cleaned_message}"
-                    response = openai_client.chat.completions.create(
-                        model="gpt-3.5-turbo",  # Use GPT-3.5 for initial search
-                        messages=[
-                            {"role": "system", "content": ttu_context},
-                            {"role": "user", "content": f"Tóm tắt ngắn gọn thông tin về: {search_query}"}
-                        ],
-                        temperature=0.3,
-                        max_tokens=200  # Limit response length
-                    )
-                    return response.choices[0].message.content, []
+                            if any(keyword in content.lower() for keyword in TTU_VALIDATION_KEYWORDS):
+                                if len(content) > 2000:
+                                    content = content[:2000] + "..."
+                                scraped_content_cache[cache_key] = content
+                                scraped_content_cache['timestamp'] = datetime.now()
+                                # Combine with web search results
+                                web_content = f"{web_content}\n\nThông tin từ Khoa CNTT:\n{content}"
+
+                return web_content, citations
             except Exception as e:
                 print(f"Web search error: {str(e)}")
                 return "", []
@@ -445,16 +505,23 @@ Trả lời ngắn gọn, chính xác."""
         web_text, citations = get_web_search()
         txt_text, matched_sections = get_txt_content()
 
-        # Combine and synthesize information with reduced prompt
+        # Enhance the synthesis prompt to enforce accuracy
         synthesis_prompt = f"""Câu hỏi: {cleaned_message}
 
-Thông tin chính thức:
+Thông tin chính thức từ tài liệu tuyển sinh TTU:
 {txt_text}
 
-Thông tin bổ sung:
+Thông tin bổ sung từ website TTU:
 {web_text}
 
-Yêu cầu: Tổng hợp ngắn gọn, ưu tiên thông tin chính thức."""
+Yêu cầu: 
+1. Trả lời với ngầm hiểu đây là thông tin về Đại học Tân Tạo
+2. Chỉ tổng hợp thông tin chính thức và đã xác thực
+3. Ưu tiên thông tin từ tài liệu tuyển sinh 2025
+4. Bỏ qua thông tin chung chung hoặc không rõ nguồn gốc
+5. Nếu không đủ thông tin chính xác, đề xuất liên hệ TTU
+6. Trả lời ngắn gọn, súc tích
+7. Nếu có trích dẫn từ website, đính kèm link nguồn"""
 
         # Get final response with reduced token count
         final_response = openai_client.chat.completions.create(
@@ -464,25 +531,29 @@ Yêu cầu: Tổng hợp ngắn gọn, ưu tiên thông tin chính thức."""
                 {"role": "user", "content": synthesis_prompt}
             ],
             temperature=0.3,
-            max_tokens=500  # Limit response length
+            max_tokens=500
         )
 
         response_text = final_response.choices[0].message.content
 
         # If no useful information found
         if not response_text or "không tìm thấy thông tin" in response_text.lower():
-            response_text = """### Thông tin liên hệ
+            response_text = """### Thông tin liên hệ TTU
 
-Vui lòng liên hệ TTU để được tư vấn:
+Xin lỗi, tôi không tìm thấy thông tin chi tiết về vấn đề này. Vui lòng liên hệ TTU để được tư vấn cụ thể:
 * **Hotline:** 0981 152 153
 * **Email:** info@ttu.edu.vn
 * **Website:** [ttu.edu.vn](https://ttu.edu.vn)"""
 
         if is_cs_query:
-            response_text += "\n\n### Khoa CNTT\n* **Email:** sit@ttu.edu.vn\n* **Website:** [sit.ttu.edu.vn](https://sit.ttu.edu.vn)"
+            response_text += "\n\n### Khoa CNTT TTU\n* **Email:** sit@ttu.edu.vn\n* **Website:** [sit.ttu.edu.vn](https://sit.ttu.edu.vn)"
 
         # Clean up formatting
         response_text = response_text.replace("\n\n\n", "\n\n").strip()
+
+        # Add TTU context to response if it was an implicit query
+        if not is_explicit_ttu and is_implicit_ttu and "TTU" not in response_text[:50]:
+            response_text = f"### Thông tin Đại học Tân Tạo (TTU)\n\n{response_text}"
 
         return {
             "role": "assistant",
