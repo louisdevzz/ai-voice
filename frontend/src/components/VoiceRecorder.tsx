@@ -57,7 +57,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
 
   const sendTranscriptToBackend = async (transcript: string) => {
     try {
-      const response = await fetch('http://localhost:3000/api/chat', {
+      const response = await fetch('https://api.slothai.xyz/ai/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
