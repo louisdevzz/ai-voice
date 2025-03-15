@@ -92,12 +92,14 @@ const ChatPage = () => {
   }, [messages, prevMessagesLength]);
 
   const handleSubmit = async (e: React.FormEvent) => {
-    setSearchSteps(steps => steps.map(step => ({ ...step, status: 'pending' })));
-
-    // Step 1: Processing chat message
-    setSearchSteps(steps => steps.map((step, index) => 
-        index === 0 ? { ...step, status: 'current' } : step
-    ));
+    // Reset search steps at the start of each submission
+    const initialSteps: Array<{message: string, status: 'pending' | 'completed' | 'current'}> = [
+      { message: "Bắt đầu tìm kiếm", status: 'pending' },
+      { message: "Đang tìm kiếm thông tin", status: 'pending' },
+      { message: "Đang trả về kết quả", status: 'pending' },
+      { message: "Trả về kết quả", status: 'pending' }
+    ];
+    setSearchSteps(initialSteps);
 
     e.preventDefault();
     if (!input.trim() || isLoading) return;
@@ -115,6 +117,9 @@ const ChatPage = () => {
     setIsLoading(true);
     try {
       // Step 1: Bắt đầu tìm kiếm
+      setSearchSteps(steps => steps.map((step, index) => 
+        index === 0 ? { ...step, status: 'current' } : step
+      ));
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       // Step 2: Đang tìm kiếm thông tin
@@ -169,6 +174,8 @@ const ChatPage = () => {
       setMessages(messageStore.getMessages(chatId!));
     } finally {
       setIsLoading(false);
+      // Reset search steps after completion
+      setSearchSteps([]);
     }
   };
 
