@@ -1,0 +1,12 @@
+streamlit==1.32.0
+sounddevice==0.4.6
+numpy==1.24.3
+python-dotenv==1.0.1
+openai==1.12.0
+elevenlabs==0.3.0
+webrtcvad==2.0.10
+wave==0.0.2
+fastapi==0.109.2
+uvicorn==0.27.1
+python-multipart==0.0.9
+pydantic==2.6.1
