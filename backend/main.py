@@ -405,7 +405,7 @@ Yêu cầu:
                 # Use OpenAI web search with modified query
                 search_query = f"site:ttu.edu.vn {search_message}"
                 openai_response = openai_client.responses.create(
-                    model="gpt-4",
+                    model="gpt-4o",
                     tools=[{"type": "web_search_preview"}],
                     input=f"""Tìm thông tin về Đại học Tân Tạo (TTU) theo yêu cầu sau:
 {search_message}
