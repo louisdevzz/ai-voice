@@ -394,16 +394,20 @@ Thông tin cơ bản về TTU:
 - Website: ttu.edu.vn
 
 Yêu cầu:
-1. Chỉ sử dụng thông tin từ website chính thức của TTU
+1. Chỉ sử dụng thông tin từ tài liệu tuyển sinh 2025 và website chính thức của TTU
 2. Không sử dụng thông tin chung chung hoặc không xác thực
 3. Nếu không có thông tin chính xác, đề xuất liên hệ TTU
 4. Mọi câu trả lời đều ngầm hiểu là về Đại học Tân Tạo"""
 
-        # Get web search results
-        openai_response = openai_client.responses.create(
-            model="gpt-4o",
-            tools=[{"type": "web_search_preview"}],
-            input=f"""Tìm thông tin về Đại học Tân Tạo (TTU) theo yêu cầu sau:
+        # 1. Get web search results with enhanced validation
+        def get_web_search():
+            try:
+                # Use OpenAI web search with modified query
+                search_query = f"site:ttu.edu.vn {search_message}"
+                openai_response = openai_client.responses.create(
+                    model="gpt-4o",
+                    tools=[{"type": "web_search_preview"}],
+                    input=f"""Tìm thông tin về Đại học Tân Tạo (TTU) theo yêu cầu sau:
 {search_message}
 
 Yêu cầu:
@@ -412,46 +416,112 @@ Yêu cầu:
 3. Bỏ qua thông tin chung chung hoặc không xác thực
 4. Nếu không tìm thấy thông tin chính xác, trả về "Không tìm thấy thông tin"
 5. Mọi thông tin đều phải là về Đại học Tân Tạo."""
-        )
+                )
 
-        # Extract web search results
-        web_content = ""
-        citations = []
-        
-        if openai_response.output:
-            for output in openai_response.output:
-                if output.type == "message":
-                    for content in output.content:
-                        if content.type == "output_text":
-                            web_content = content.text
-                            # Extract citations if available
-                            if hasattr(content, 'annotations'):
-                                citations = [
-                                    {
-                                        'url': ann.url,
-                                        'title': ann.title
-                                    }
-                                    for ann in content.annotations
-                                    if ann.type == "url_citation"
-                                ]
+                # Extract web search results
+                web_content = ""
+                citations = []
+                
+                if openai_response.output:
+                    for output in openai_response.output:
+                        if output.type == "message":
+                            for content in output.content:
+                                if content.type == "output_text":
+                                    web_content = content.text
+                                    # Extract citations if available
+                                    if hasattr(content, 'annotations'):
+                                        citations = [
+                                            {
+                                                'url': ann.url,
+                                                'title': ann.title
+                                            }
+                                            for ann in content.annotations
+                                            if ann.type == "url_citation"
+                                        ]
 
-        # Validate web content
-        if not any(keyword in web_content.lower() for keyword in TTU_VALIDATION_KEYWORDS):
-            web_content = ""
+                # Validate web content
+                if not any(keyword in web_content.lower() for keyword in TTU_VALIDATION_KEYWORDS):
+                    web_content = ""
+
+                # If CS/IT related, also get Firecrawl content
+                if is_cs_query:
+                    cache_key = 'sit_content'
+                    if cache_key not in scraped_content_cache:
+                        scrape_result = firecrawl_app.scrape_url(
+                            'https://sit.ttu.edu.vn',
+                            params={
+                                'formats': ['markdown'],
+                                'onlyMainContent': True,
+                                'waitFor': 1000
+                            }
+                        )
+                        if scrape_result.get('success'):
+                            content = scrape_result['data']['markdown']
+                            if any(keyword in content.lower() for keyword in TTU_VALIDATION_KEYWORDS):
+                                if len(content) > 2000:
+                                    content = content[:2000] + "..."
+                                scraped_content_cache[cache_key] = content
+                                scraped_content_cache['timestamp'] = datetime.now()
+                                # Combine with web search results
+                                web_content = f"{web_content}\n\nThông tin từ Khoa CNTT:\n{content}"
+
+                return web_content, citations
+            except Exception as e:
+                print(f"Web search error: {str(e)}")
+                return "", []
+
+        # 2. Get TXT content with optimized section selection
+        def get_txt_content():
+            txt_content, txt_sections = load_content()
+            if not txt_content:
+                return "", []
+
+            # Keywords mapping
+            keywords = {
+                'tuyển sinh': ['tuyển sinh', 'đăng ký', 'xét tuyển', 'hồ sơ', 'điểm chuẩn'],
+                'học phí': ['học phí', 'tiền học', 'phí'],
+                'học bổng': ['học bổng', 'hỗ trợ', 'miễn giảm'],
+                'ngành học': ['ngành', 'chuyên ngành', 'khoa', 'chương trình']
+            }
+
+            # Find most relevant section only
+            most_relevant_section = 'thông tin chung'
+            max_matches = 0
+            
+            for section, words in keywords.items():
+                matches = sum(1 for word in words if word in cleaned_message)
+                if matches > max_matches:
+                    max_matches = matches
+                    most_relevant_section = section
+
+            # Get content from most relevant section only
+            content = '\n'.join(txt_sections[most_relevant_section])
+            if len(content) > 2000:  # Limit to ~2000 characters
+                content = content[:2000] + "..."
+
+            return content, [most_relevant_section]
+
+        # Execute searches
+        web_text, citations = get_web_search()
+        txt_text, matched_sections = get_txt_content()
 
         # Enhance the synthesis prompt to enforce accuracy
         synthesis_prompt = f"""Câu hỏi: {cleaned_message}
 
-Thông tin từ website TTU:
-{web_content}
+Thông tin chính thức từ tài liệu tuyển sinh TTU:
+{txt_text}
+
+Thông tin bổ sung từ website TTU:
+{web_text}
 
 Yêu cầu: 
 1. Trả lời với ngầm hiểu đây là thông tin về Đại học Tân Tạo
 2. Chỉ tổng hợp thông tin chính thức và đã xác thực
-3. Bỏ qua thông tin chung chung hoặc không rõ nguồn gốc
-4. Nếu không đủ thông tin chính xác, đề xuất liên hệ TTU
-5. Trả lời ngắn gọn, súc tích
-6. Nếu có trích dẫn từ website, đính kèm link nguồn"""
+3. Ưu tiên thông tin từ tài liệu tuyển sinh 2025
+4. Bỏ qua thông tin chung chung hoặc không rõ nguồn gốc
+5. Nếu không đủ thông tin chính xác, đề xuất liên hệ TTU
+6. Trả lời ngắn gọn, súc tích
+7. Nếu có trích dẫn từ website, đính kèm link nguồn"""
 
         # Get final response with reduced token count
         final_response = openai_client.chat.completions.create(
@@ -488,7 +558,7 @@ Xin lỗi, tôi không tìm thấy thông tin chi tiết về vấn đề này. 
         return {
             "role": "assistant",
             "content": response_text,
-            "sections": [],
+            "sections": matched_sections,
             "citations": citations if citations else None
         }
 
